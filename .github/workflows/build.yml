@@ -62,13 +62,16 @@ jobs:
         run: |
           top=("$WINVM_TAP/winvm-qemu" swtpm zstd)
           brew install --only-dependencies "${top[@]}"
-          runtime=$(brew deps --union --topological "${top[@]}" 2> /dev/null)
-          echo "runtime dependencies: $runtime"
-          for f in $runtime; do
-            brew reinstall --build-from-source "$f"
+          runtime=$(brew deps --union --topological "${top[@]}" 2> /dev/null | awk '!seen[$0]++')
+          echo "runtime dependencies:" $runtime
+          # Uninstall, then install in a separate brew: `brew reinstall` over a
+          # poured keg writes the old receipt back after building, so the keg
+          # would say it came from a bottle.
+          for f in $runtime zstd; do
+            brew uninstall --force --ignore-dependencies "$f"
+            brew install --build-from-source "$f"
           done
           brew install --build-from-source "$WINVM_TAP/winvm-qemu" swtpm
-          brew reinstall --build-from-source zstd
 
       - name: Package
         env:
