@@ -25,7 +25,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SYSTEM = ("/usr/lib/", "/System/")
-DATA = ["efi-virtio.rom"]
+DATA = ["efi-virtio.rom", "keymaps"]
 
 
 def run(*cmd: str) -> str:
@@ -145,7 +145,11 @@ def main() -> None:
             subprocess.run(["install_name_tool", *args, str(dst)], check=True, capture_output=True)
 
     for f in DATA:
-        shutil.copyfile(qemu / "share" / "qemu" / f, stage / "share" / "qemu" / f)
+        src = qemu / "share" / "qemu" / f
+        if src.is_dir():
+            shutil.copytree(src, stage / "share" / "qemu" / f)
+        else:
+            shutil.copyfile(src, stage / "share" / "qemu" / f)
 
     entitlements = HERE / "hvf.entitlements"
     for dst in copies.values():

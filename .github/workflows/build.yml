@@ -62,9 +62,9 @@ jobs:
         run: |
           top=("$WINVM_TAP/winvm-qemu" swtpm zstd)
           brew install --only-dependencies "${top[@]}"
-          mapfile -t runtime < <(brew deps --union --topological "${top[@]}")
-          echo "runtime dependencies: ${runtime[*]}"
-          for f in "${runtime[@]}"; do
+          runtime=$(brew deps --union --topological "${top[@]}" 2> /dev/null)
+          echo "runtime dependencies: $runtime"
+          for f in $runtime; do
             brew reinstall --build-from-source "$f"
           done
           brew install --build-from-source "$WINVM_TAP/winvm-qemu" swtpm

@@ -22,6 +22,7 @@ class WinvmQemu < Formula
   depends_on "glib"
   depends_on "libslirp"
   depends_on macos: :sequoia
+  depends_on "nettle"
   depends_on "pixman"
   depends_on "zstd"
 
@@ -48,6 +49,7 @@ class WinvmQemu < Formula
       --enable-pixman
       --enable-vnc
       --enable-zstd
+      --enable-nettle
       --enable-tools
       --disable-auth-pam
       --disable-bochs
@@ -71,7 +73,6 @@ class WinvmQemu < Formula
       --disable-libssh
       --disable-libusb
       --disable-lzo
-      --disable-nettle
       --disable-parallels
       --disable-png
       --disable-pvg

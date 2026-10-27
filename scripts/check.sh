@@ -36,6 +36,15 @@ for d in qemu-xhci nvme virtio-blk-pci virtio-net-pci virtio-serial-pci tpm-tis-
 done
 echo "ok   devices"
 
+if printf 'quit\n' | "$rt/bin/qemu-system-aarch64" -M virt -cpu max -accel tcg -m 256 -display none -nodefaults \
+  -vnc 127.0.0.1:99,password=on -netdev user,id=n0 -device virtio-net-pci,netdev=n0 -device ramfb -S -monitor stdio > "$tmp/start.log" 2>&1; then
+  echo "ok   starts with VNC, ramfb and virtio-net (keymaps and option ROM found)"
+else
+  echo "FAIL QEMU does not start with winvm's display and network:"
+  tail -3 "$tmp/start.log"
+  fail=1
+fi
+
 python3 - "$rt" <<'EOF' || fail=1
 import hashlib, json, pathlib, sys
 rt = pathlib.Path(sys.argv[1])
