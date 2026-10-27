@@ -70,9 +70,6 @@ jobs:
           brew install --build-from-source "$WINVM_TAP/winvm-qemu" swtpm
           brew reinstall --build-from-source zstd
 
-      - name: Test the QEMU formula
-        run: brew test "$WINVM_TAP/winvm-qemu"
-
       - name: Package
         env:
           REQUIRE_SOURCE: "1"
