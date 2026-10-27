@@ -1,0 +1,113 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -eo pipefail {0}
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+  HOMEBREW_NO_INSTALL_UPGRADE: 1
+  HOMEBREW_NO_ANALYTICS: 1
+  WINVM_TAP: winvm/runtime
+
+jobs:
+  runtime:
+    runs-on: macos-15
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            qemu=$(sed -nE 's|.*qemu-([0-9.]+)\.tar\.xz.*|\1|p' Formula/winvm-qemu.rb)
+            version="$qemu-0.${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Start from an empty Homebrew
+        run: |
+          brew list --formula | xargs -r brew uninstall --force --ignore-dependencies
+          brew list --cask | xargs -r brew uninstall --cask --force || true
+          brew cleanup --prune=all
+          rm -rf "$(brew --cache)"
+
+      - name: Tap the recipe
+        run: |
+          brew tap-new --no-git "$WINVM_TAP"
+          cp Formula/*.rb "$(brew --repo "$WINVM_TAP")/Formula/"
+
+      - name: Build every shipped component from source
+        run: |
+          top=("$WINVM_TAP/winvm-qemu" swtpm zstd)
+          brew install --only-dependencies "${top[@]}"
+          mapfile -t runtime < <(brew deps --union --topological "${top[@]}")
+          echo "runtime dependencies: ${runtime[*]}"
+          for f in "${runtime[@]}"; do
+            brew reinstall --build-from-source "$f"
+          done
+          brew install --build-from-source "$WINVM_TAP/winvm-qemu" swtpm
+          brew reinstall --build-from-source zstd
+
+      - name: Test the QEMU formula
+        run: brew test "$WINVM_TAP/winvm-qemu"
+
+      - name: Package
+        env:
+          REQUIRE_SOURCE: "1"
+        run: |
+          mkdir -p dist
+          python3 scripts/package.py "${{ steps.version.outputs.version }}" dist
+          scripts/sources.sh "${{ steps.version.outputs.version }}" dist
+
+      - name: Check the runtime stands alone
+        run: scripts/check.sh "dist/winvm-runtime-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: winvm-runtime-${{ steps.version.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/*.manifest.json
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: runtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "winvm-runtime ${GITHUB_REF_NAME#v}" \
+            --notes "QEMU, swtpm and zstd for winvm, built from source. Accept on a real Mac before winvm pins it (see README)." \
+            ./*.tar.gz ./*.sha256 ./*.manifest.json
