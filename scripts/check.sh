@@ -45,6 +45,26 @@ else
   fail=1
 fi
 
+# The browser view and the app reach the screen through QEMU's websocket. Its
+# handshake hashes with the crypto backend (QEMU 11.1 crashed here with nettle 4).
+"$rt/bin/qemu-system-aarch64" -M virt -cpu max -accel tcg -m 256 -display none -nodefaults \
+  -vnc 127.0.0.1:98,websocket=127.0.0.1:5798,password=on -S -monitor none > "$tmp/ws.log" 2>&1 &
+qpid=$!
+for _ in $(seq 1 50); do nc -z 127.0.0.1 5798 2> /dev/null && break; sleep 0.2; done
+curl -s -i --max-time 3 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Protocol: binary" \
+  http://127.0.0.1:5798/ > "$tmp/ws.out" 2>&1 || true
+if grep -q "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=" "$tmp/ws.out" && kill -0 "$qpid" 2> /dev/null; then
+  echo "ok   websocket handshake"
+else
+  echo "FAIL websocket handshake:"
+  head -5 "$tmp/ws.out"
+  tail -3 "$tmp/ws.log"
+  fail=1
+fi
+kill "$qpid" 2> /dev/null
+wait "$qpid" 2> /dev/null
+
 python3 - "$rt" <<'EOF' || fail=1
 import hashlib, json, pathlib, sys
 rt = pathlib.Path(sys.argv[1])

@@ -20,9 +20,9 @@ class WinvmQemu < Formula
   depends_on arch: :arm64
   depends_on "dtc"
   depends_on "glib"
+  depends_on "libgcrypt"
   depends_on "libslirp"
   depends_on macos: :sequoia
-  depends_on "nettle"
   depends_on "pixman"
   depends_on "zstd"
 
@@ -49,7 +49,7 @@ class WinvmQemu < Formula
       --enable-pixman
       --enable-vnc
       --enable-zstd
-      --enable-nettle
+      --enable-gcrypt
       --enable-tools
       --disable-auth-pam
       --disable-bochs
@@ -64,7 +64,7 @@ class WinvmQemu < Formula
       --disable-dbus-display
       --disable-dmg
       --disable-docs
-      --disable-gcrypt
+      --disable-nettle
       --disable-gettext
       --disable-gnutls
       --disable-gtk
