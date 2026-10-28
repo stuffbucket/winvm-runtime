@@ -15,10 +15,20 @@ mkdir -p "$stage/sources" "$stage/formulae" "$stage/recipe"
 python3 -c 'import json,sys; [print(k) for k in json.load(open(sys.argv[1]))["components"]]' "$manifest" |
   while read -r formula; do
     ref=$formula
-    [ "$formula" = winvm-qemu ] && ref=$WINVM_TAP/winvm-qemu
+    case $formula in winvm-*) ref=$WINVM_TAP/$formula ;; esac
     brew fetch --quiet --build-from-source "$ref" > /dev/null
-    cp "$(brew --cache --build-from-source "$ref")" "$stage/sources/"
+    src=$(brew --cache --build-from-source "$ref")
+    cp "$src" "$stage/sources/"
     brew cat "$ref" > "$stage/formulae/$formula.rb"
+    # virtiofsd's crates, the patched rust-vmm forks among them, at the
+    # commits its Cargo.lock names: the tarball alone does not rebuild it.
+    if [ "$formula" = winvm-virtiofsd ]; then
+      work=$(mktemp -d)
+      tar -xzf "$src" -C "$work" --strip-components 1
+      (cd "$work" && cargo vendor --quiet --locked --versioned-dirs vendor > /dev/null)
+      tar -czf "$stage/sources/virtiofsd-vendor.tar.gz" -C "$work" vendor Cargo.lock
+      rm -rf "$work"
+    fi
   done
 
 cp -R "$root/Formula" "$root/patches" "$root/scripts" "$root/README.md" "$stage/recipe/"
