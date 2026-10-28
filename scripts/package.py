@@ -3,10 +3,15 @@
 
 usage: package.py VERSION OUTDIR
 
-Copies qemu-system-aarch64, qemu-img, swtpm and zstd with every non-system
-dylib they load (as regular files), rewrites load commands to the runtime's
-own lib/, signs ad hoc (qemu-system-aarch64 with the hypervisor entitlement),
-writes manifest.json and winvm-runtime-VERSION-darwin-arm64.tar.gz.
+Copies qemu-system-aarch64, qemu-img, swtpm, zstd and virtiofsd with every
+non-system dylib they load (as regular files), rewrites load commands to the
+runtime's own lib/, signs ad hoc (qemu-system-aarch64 with the hypervisor
+entitlement), copies licence notices, writes manifest.json and
+winvm-runtime-VERSION-darwin-arm64.tar.gz.
+
+WINVM_PREFIX_<FORMULA> (e.g. WINVM_PREFIX_WINVM_QEMU) packages a formula from a
+local install prefix instead of its Homebrew keg, for a build on a developer
+Mac; the manifest then records that component's version as "local".
 """
 
 from __future__ import annotations
@@ -26,14 +31,25 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SYSTEM = ("/usr/lib/", "/System/")
 DATA = ["efi-virtio.rom", "keymaps"]
+# Licence notices a component ships, by formula: (its share/licenses/<dir>, SPDX
+# expression). A Rust binary carries its crates statically, so virtiofsd's
+# directory holds the crates' notices too (crates.txt, crates/).
+LICENSES = {"winvm-virtiofsd": ("virtiofsd", "Apache-2.0 AND BSD-3-Clause")}
+FORMULAE = ("winvm-qemu", "swtpm", "zstd", "winvm-virtiofsd")
 
 
 def run(*cmd: str) -> str:
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
 
 
+def prefix_override(formula: str) -> Path | None:
+    own = os.environ.get("WINVM_PREFIX_" + formula.upper().replace("-", "_"), "")
+    return Path(own).resolve() if own else None
+
+
 def brew_prefix(formula: str) -> Path:
-    return Path(run("brew", "--prefix", formula).strip())
+    own = prefix_override(formula)
+    return own if own is not None else Path(run("brew", "--prefix", formula).strip())
 
 
 def is_macho(path: Path) -> bool:
@@ -97,6 +113,7 @@ def main() -> None:
         "qemu-img": qemu / "bin" / "qemu-img",
         "swtpm": brew_prefix("swtpm") / "bin" / "swtpm",
         "zstd": brew_prefix("zstd") / "bin" / "zstd",
+        "virtiofsd": brew_prefix("winvm-virtiofsd") / "bin" / "virtiofsd",
     }
 
     libs: dict[str, Path] = {}
@@ -151,6 +168,15 @@ def main() -> None:
         else:
             shutil.copyfile(src, stage / "share" / "qemu" / f)
 
+    licenses = {}
+    for formula, (subdir, spdx) in LICENSES.items():
+        src = brew_prefix(formula) / "share" / "licenses" / subdir
+        if not any(src.glob("LICENSE*")):
+            raise SystemExit(f"{formula}: no licence files in {src}")
+        dst = stage / "share" / "licenses" / subdir
+        shutil.copytree(src, dst)
+        licenses[subdir] = {"license": spdx, "path": str(dst.relative_to(stage))}
+
     entitlements = HERE / "hvf.entitlements"
     for dst in copies.values():
         cmd = ["codesign", "--force", "--sign", "-"]
@@ -168,6 +194,9 @@ def main() -> None:
         keg = keg_of(src)
         if keg is not None:
             components[keg[0]] = keg[1]
+    for formula in FORMULAE:
+        if prefix_override(formula) is not None:
+            components[formula] = "local"
     if os.environ.get("REQUIRE_SOURCE") == "1":
         poured = [
             f"{n} {v}"
@@ -192,6 +221,7 @@ def main() -> None:
         "qemuPatches": patch_digest,
         "components": dict(sorted(components.items())),
         "macho": sorted(str(p.relative_to(stage)) for p in copies.values()),
+        "licenses": licenses,
         "files": files,
         "build": {
             "macos": run("sw_vers", "-productVersion").strip(),
