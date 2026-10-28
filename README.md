@@ -1,7 +1,7 @@
 # winvm-runtime
 
-The QEMU, swtpm and zstd that [winvm](https://github.com/stuffbucket/winvm)
-runs, built from source, packaged so they run from any directory, and pinned by
+The QEMU, swtpm, zstd and virtiofsd that
+[winvm](https://github.com/stuffbucket/winvm) runs, built from source, packaged so they run from any directory, and pinned by
 checksum in winvm. Modelled on Rancher Desktop's
 [rancher-desktop-qemu](https://github.com/rancher-sandbox/rancher-desktop-qemu).
 
@@ -18,8 +18,8 @@ changes only when winvm changes the pin.
 
 | Asset | |
 |---|---|
-| `winvm-runtime-<v>-darwin-arm64.tar.gz` | `bin/` (`qemu-system-aarch64`, `qemu-img`, `swtpm`, `zstd`), `lib/` (every library they load, as regular files), `share/qemu/efi-virtio.rom`, `manifest.json` |
-| `…-darwin-arm64.manifest.json` | component versions, QEMU patch digest, SHA-256 of every file |
+| `winvm-runtime-<v>-darwin-arm64.tar.gz` | `bin/` (`qemu-system-aarch64`, `qemu-img`, `swtpm`, `zstd`, `virtiofsd`), `lib/` (every library they load, as regular files), `share/qemu/efi-virtio.rom`, `share/licenses/virtiofsd/` (its licences and its crates' notices), `manifest.json` |
+| `…-darwin-arm64.manifest.json` | component versions, QEMU patch digest, licence entries, SHA-256 of every file |
 | `winvm-runtime-<v>-sources.tar.gz` | every component's source tarball and formula, plus this recipe |
 | `*.sha256` | checksums |
 
@@ -35,8 +35,8 @@ Developer ID.
 
 1. Uninstall every Homebrew package.
 2. Install the formulae here (`Formula/winvm-qemu.rb`, derived from
-   homebrew-core's `qemu` and cut down to what winvm uses) together with core's
-   `swtpm` and `zstd`. Every component that ships is rebuilt from source;
+   homebrew-core's `qemu` and cut down to what winvm uses, and
+   `Formula/winvm-virtiofsd.rb`) together with core's `swtpm` and `zstd`. Every component that ships is rebuilt from source;
    build-only tools come from bottles. `scripts/package.py` refuses a shipped
    component poured from a bottle.
 3. `scripts/package.py` copies the binaries and their library closure,
@@ -45,7 +45,15 @@ Developer ID.
 4. `scripts/sources.sh` collects the sources.
 5. `scripts/check.sh` unpacks the tarball elsewhere and checks that every
    binary runs with only its own libraries, the entitlement, the devices winvm
-   uses, and the manifest.
+   uses, that `vhost-user-fs-pci` starts against `virtiofsd` and the daemon
+   exits with QEMU, the `qemu-vdagent` chardev, the manifest, and the
+   licence entries.
+
+To build on a Mac without the empty-Homebrew step, install QEMU and virtiofsd
+into prefixes of your own (the formulae's configure arguments and cargo
+commands) and point `package.py` at them: `WINVM_PREFIX_WINVM_QEMU=<prefix>
+WINVM_PREFIX_WINVM_VIRTIOFSD=<prefix> python3 scripts/package.py <v> dist`.
+Those components are recorded as version `local`.
 
 A tag `v<version>` publishes a draft release.
 
@@ -65,6 +73,29 @@ pull request that changes `packages/core/runtime.json`.
 |---|---|
 | (none yet) | |
 
+## The shared folder and the clipboard
+
+winvm shares a Mac folder with the guest over virtio-fs and carries the
+clipboard over the SPICE agent protocol. Both need things QEMU's default
+macOS build leaves out:
+
+- `--enable-vhost-user`, for `vhost-user-fs-pci`. `--disable-vhost-net`,
+  because `vhost_net.c` includes Linux headers and does not build on Darwin.
+- `patches/0002-…`: QEMU 11.1 injects a kick after `SET_VRING_KICK` by
+  writing to the notifier's read side, which on macOS (a pipe, no eventfd)
+  fails with `EBADF`, so no vhost-user device can start. The patch kicks
+  through the notifier's write side.
+- `--enable-spice-protocol` with `--disable-spice`: `qemu-vdagent` needs only
+  spice-protocol's headers (BSD, build-time only). QEMU does not link
+  spice-server; `check.sh` fails if it does.
+- `virtiofsd`: Chris Thomas's macOS port of virtiofsd
+  ([christhomas/virtiofsd](https://github.com/christhomas/virtiofsd), v1.14.0,
+  pinned by commit). It patches `vhost`, `vhost-user-backend` and
+  `vmm-sys-util` from forks; its `Cargo.lock` pins each fork by commit, the
+  build is `--locked` and offline from `cargo vendor`, and the sources tarball
+  carries the vendored crates. winvm runs one daemon per QEMU process; it
+  exits when QEMU disconnects.
+
 ## Changing QEMU
 
 Change `url` and `sha256` in `Formula/winvm-qemu.rb`, carry any patch in
@@ -77,7 +108,8 @@ saves are keyed on, so saves made with the old runtime will not load.
 
 This repository's scripts are MIT (`LICENSE`). `Formula/winvm-qemu.rb` is
 derived from homebrew-core (BSD 2-Clause). The runtime contains QEMU
-(GPL-2.0), glib, json-glib, libslirp and gettext's libintl (LGPL-2.1 or
+(GPL-2.0), virtiofsd (Apache-2.0 AND BSD-3-Clause, with its crates' notices in
+`share/licenses/virtiofsd/`), glib, json-glib, libslirp and gettext's libintl (LGPL-2.1 or
 later), swtpm and libtpms (BSD-3-Clause), zstd, lz4 and xz (BSD), pixman and
 dtc's libfdt (MIT/BSD), pcre2 (BSD) and OpenSSL (Apache-2.0). Their sources
 are in each release's sources tarball.
