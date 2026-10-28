@@ -57,6 +57,7 @@ jobs:
         run: |
           brew tap-new --no-git "$WINVM_TAP"
           cp Formula/*.rb "$(brew --repo "$WINVM_TAP")/Formula/"
+          cp -R patches "$(brew --repo "$WINVM_TAP")/patches"
 
       - name: Build every shipped component from source
         run: |

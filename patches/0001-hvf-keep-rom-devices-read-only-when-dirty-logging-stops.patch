@@ -1,0 +1,33 @@
+From: winvm runtime <noreply@stuffbucket.co>
+Subject: [PATCH] hvf: keep ROM devices read-only when dirty logging stops
+
+When migration (savevm, migrate) stops dirty logging, hvf_log_stop() gives
+every logged section read, write and execute access back. That includes a ROM
+device in romd mode, such as the pflash holding UEFI variables, which
+hvf_set_phys_mem() maps read-only so that writes trap to the device. After
+any save of a running guest, the guest's flash command writes land in the
+backing RAM instead; the device stays in read-array mode, and edk2's NOR flash
+driver polls the status register forever on its next variable write (seen as
+a hang in firmware on the next reboot).
+
+Restore write access only where hvf_set_phys_mem() granted it.
+
+Carried by winvm-runtime until upstream QEMU has an equivalent fix.
+---
+--- a/accel/hvf/hvf-all.c
++++ b/accel/hvf/hvf-all.c
+@@ -149,7 +149,13 @@
+                          MemoryRegionSection *section, int old, int new)
+ {
+     assert(old != 0);
+-    if (new == 0) {
++    /*
++     * Give write access back only where hvf_set_phys_mem() granted it. A ROM
++     * device (pflash in romd mode) must stay read-only so the guest's writes
++     * keep trapping to the device; otherwise its commands land in the
++     * backing RAM and the device never sees them.
++     */
++    if (new == 0 && !section->mr->readonly && !section->mr->rom_device) {
+         hvf_unprotect_dirty_range(section->offset_within_address_space,
+                                   int128_get64(section->size));
+     }

@@ -8,6 +8,13 @@ class WinvmQemu < Formula
   sha256 "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016"
   license "GPL-2.0-only"
 
+  # QEMU fixes winvm needs before upstream has them, each with a note on why
+  # and when it can go. The tap carries patches/ beside Formula/; package.py
+  # records their digest in the manifest, which winvm keys saves on.
+  Dir[File.expand_path("../patches/*.patch", __dir__)].sort.each do |p|
+    patch :p1, File.read(p)
+  end
+
   keg_only "it is winvm's private QEMU build, packaged into the winvm runtime"
 
   depends_on "bison" => :build
