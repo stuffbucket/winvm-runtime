@@ -9,8 +9,8 @@ on any FAIL.
 """
 from __future__ import annotations
 
+import atexit
 import json
-import os
 import re
 import socket
 import subprocess
@@ -24,6 +24,16 @@ qemu = str(rt / "bin" / "qemu-system-aarch64")
 img = str(rt / "bin" / "qemu-img")
 zstd = str(rt / "bin" / "zstd")
 failed = False
+started: list[subprocess.Popen] = []
+
+
+@atexit.register
+def stop_all() -> None:
+    # A check that raises leaves its QEMU running; none may outlive the script.
+    for p in started:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
 
 
 def report(name: str, ok: bool, why: str = "") -> None:
@@ -68,6 +78,7 @@ def vm(tag: str, *extra: str) -> tuple[subprocess.Popen, Qmp]:
          "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
          "-qmp", f"unix:{sock},server=on,wait=off", *extra],
         stdout=subprocess.DEVNULL, stderr=open(tmp / f"{tag}.log", "w"))
+    started.append(p)
     return p, Qmp(sock)
 
 
