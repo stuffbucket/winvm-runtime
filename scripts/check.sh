@@ -2,8 +2,8 @@
 # usage: check.sh TARBALL
 # Unpacks the runtime somewhere unrelated and checks it stands alone: every
 # binary runs, every library loads from the runtime itself, QEMU carries the
-# hypervisor entitlement and has the devices winvm uses, and every file
-# matches manifest.json.
+# hypervisor entitlement and has the devices winvm uses, the paths winvm
+# takes through QEMU work (paths.py), and every file matches manifest.json.
 set -euo pipefail
 tarball=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 tmp=$(mktemp -d)
@@ -75,6 +75,11 @@ else
   grep -o '"desc": *"[^"]*"' "$tmp/shot.log" | head -2
   fail=1
 fi
+
+# The paths winvm uses beyond a plain start: qemu-img, saves in each format,
+# snapshots, port forwards, the virtio-gpu display.
+mkdir -p "$tmp/paths"
+python3 "$(dirname "$0")/paths.py" "$rt" "$tmp/paths" || fail=1
 
 python3 - "$rt" <<'EOF' || fail=1
 import hashlib, json, pathlib, sys
