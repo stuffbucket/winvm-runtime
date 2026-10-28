@@ -65,6 +65,17 @@ fi
 kill "$qpid" 2> /dev/null
 wait "$qpid" 2> /dev/null
 
+# winvm's screenshots, OCR and computer use take PNG screendumps.
+if printf '%s\n' '{"execute":"qmp_capabilities"}' "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$tmp/shot.png\",\"format\":\"png\"}}" '{"execute":"quit"}' |
+  "$rt/bin/qemu-system-aarch64" -M virt -cpu max -accel tcg -m 256 -display none -nodefaults -device ramfb -S -qmp stdio > "$tmp/shot.log" 2>&1 &&
+  [ "$(head -c 8 "$tmp/shot.png" 2> /dev/null | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ]; then
+  echo "ok   PNG screendump"
+else
+  echo "FAIL PNG screendump:"
+  grep -o '"desc": *"[^"]*"' "$tmp/shot.log" | head -2
+  fail=1
+fi
+
 python3 - "$rt" <<'EOF' || fail=1
 import hashlib, json, pathlib, sys
 rt = pathlib.Path(sys.argv[1])

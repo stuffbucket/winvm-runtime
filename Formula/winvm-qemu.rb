@@ -21,6 +21,7 @@ class WinvmQemu < Formula
   depends_on "dtc"
   depends_on "glib"
   depends_on "libgcrypt"
+  depends_on "libpng"
   depends_on "libslirp"
   depends_on macos: :sequoia
   depends_on "pixman"
@@ -50,6 +51,7 @@ class WinvmQemu < Formula
       --enable-vnc
       --enable-zstd
       --enable-gcrypt
+      --enable-png
       --enable-tools
       --disable-auth-pam
       --disable-bochs
@@ -74,7 +76,6 @@ class WinvmQemu < Formula
       --disable-libusb
       --disable-lzo
       --disable-parallels
-      --disable-png
       --disable-pvg
       --disable-qcow1
       --disable-qed
