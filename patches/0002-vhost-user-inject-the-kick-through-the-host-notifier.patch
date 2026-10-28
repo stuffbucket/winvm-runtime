@@ -1,0 +1,66 @@
+From: winvm runtime <noreply@stuffbucket.co>
+Subject: [PATCH] vhost-user: inject the kick through the host notifier
+
+Since "vhost-user: inject kick after SET_VRING_KICK" (ef02c6becf, QEMU
+11.1), vhost_user_set_vring_kick() writes a kick into file->fd. That fd
+is event_notifier_get_fd() of the virtqueue's host notifier: the read
+side. Where eventfd exists both sides are one descriptor, so this works.
+Without eventfd (macOS, the BSDs) an EventNotifier is a pipe, the write
+fails with EBADF, vhost_dev_start() fails ("vhost_set_vring_kick failed:
+Bad file descriptor (9)"), and no vhost-user device can start.
+
+Find the host notifier whose read side file->fd is and kick it with
+event_notifier_set(), which writes to the write side. Fall back to the
+old write for any other fd.
+
+Carried by winvm-runtime for vhost-user-fs-pci (virtiofs) until upstream
+QEMU has an equivalent fix.
+---
+--- a/hw/virtio/vhost-user.c
++++ b/hw/virtio/vhost-user.c
+@@ -1485,6 +1485,24 @@
+     }
+ 
+     return 0;
++}
++
++/*
++ * The host notifier whose read side is file->fd, or NULL. vhost-user's
++ * vhost_get_vq_index() is the identity, so file->index is the device's
++ * virtqueue index.
++ */
++static EventNotifier *vhost_user_kick_notifier(struct vhost_dev *dev,
++                                               struct vhost_vring_file *file)
++{
++    EventNotifier *notifier;
++
++    if (!dev->vdev || file->index >= VIRTIO_QUEUE_MAX) {
++        return NULL;
++    }
++    notifier = virtio_queue_get_host_notifier(
++        virtio_get_queue(dev->vdev, file->index));
++    return event_notifier_get_fd(notifier) == file->fd ? notifier : NULL;
+ }
+ 
+ static int vhost_user_set_vring_kick(struct vhost_dev *dev,
+@@ -1500,8 +1518,20 @@
+      * receiving a kick. The spec suggests this to improve compatibility.
+      */
+     if (file->fd != -1) {
++        EventNotifier *notifier = vhost_user_kick_notifier(dev, file);
+         uint64_t val = 1;
+         ssize_t nwritten;
++
++        /*
++         * Kick through the notifier when file->fd is its read side. Without
++         * eventfd (macOS, the BSDs) an EventNotifier is a pipe: file->fd is
++         * the read end, which is what the back-end polls, and writing to it
++         * fails with EBADF. event_notifier_set() writes to the write end,
++         * which is the same descriptor where eventfd exists.
++         */
++        if (notifier) {
++            return event_notifier_set(notifier);
++        }
+ 
+         do {
+             nwritten = write(file->fd, &val, sizeof(val));
