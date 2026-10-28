@@ -30,6 +30,7 @@ class WinvmQemu < Formula
   depends_on arch: :arm64
   depends_on "dtc"
   depends_on "glib"
+  depends_on "jpeg-turbo"
   depends_on "libgcrypt"
   depends_on "libpng"
   depends_on "libslirp"
@@ -48,6 +49,9 @@ class WinvmQemu < Formula
     rm(Dir["python/wheels/*"] - Dir["python/wheels/{pycotap,qemu_qmp}-*-none-any.whl"])
     inreplace "pythondeps.toml", /^"wheel" = .*\n/, ""
 
+    # vnc-jpeg: Tight's JPEG subencoding (libjpeg-turbo), for the app's live
+    # screen; QEMU uses it only for a client asking for a JPEG quality on a
+    # display started with `-vnc ...,lossy=on`.
     # vhost-user is on for vhost-user-fs-pci (virtiofs: the shared folder,
     # served by virtiofsd, which winvm-virtiofsd builds). vhost-net is off:
     # vhost_net.c includes linux-headers/linux/vhost.h and does not build on
@@ -63,6 +67,7 @@ class WinvmQemu < Formula
       --enable-fdt=system
       --enable-pixman
       --enable-vnc
+      --enable-vnc-jpeg
       --enable-zstd
       --enable-gcrypt
       --enable-png
@@ -106,7 +111,6 @@ class WinvmQemu < Formula
       --disable-vhdx
       --disable-virtfs
       --disable-vmdk
-      --disable-vnc-jpeg
       --disable-vpc
       --disable-vvfat
     ]
