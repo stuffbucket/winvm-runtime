@@ -96,6 +96,16 @@ macOS build leaves out:
   carries the vendored crates. winvm runs one daemon per QEMU process; it
   exits when QEMU disconnects.
 
+## JPEG for the live screen
+
+QEMU is built with `--enable-vnc-jpeg` against libjpeg-turbo (a Homebrew
+dependency, built from source like the others; `libjpeg` ships in `lib/`), so
+Tight can send JPEG rectangles. QEMU uses JPEG only on a display started with
+`-vnc …,lossy=on`, for a client that asks for a JPEG quality. A build option:
+saves are keyed on the QEMU version and the patch digest, so it changes
+nothing for them. `check.sh` confirms the encoder is linked and that a lossy
+display answers a Tight + JPEG-quality client in Tight.
+
 ## Changing QEMU
 
 Change `url` and `sha256` in `Formula/winvm-qemu.rb`, carry any patch in
@@ -111,5 +121,6 @@ derived from homebrew-core (BSD 2-Clause). The runtime contains QEMU
 (GPL-2.0), virtiofsd (Apache-2.0 AND BSD-3-Clause, with its crates' notices in
 `share/licenses/virtiofsd/`), glib, json-glib, libslirp and gettext's libintl (LGPL-2.1 or
 later), swtpm and libtpms (BSD-3-Clause), zstd, lz4 and xz (BSD), pixman and
-dtc's libfdt (MIT/BSD), pcre2 (BSD) and OpenSSL (Apache-2.0). Their sources
+dtc's libfdt (MIT/BSD), libjpeg-turbo (IJG, BSD-3-Clause and zlib), pcre2
+(BSD) and OpenSSL (Apache-2.0). Their sources
 are in each release's sources tarball.

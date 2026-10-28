@@ -122,6 +122,63 @@ fi
 kill "$qpid" 2> /dev/null
 wait "$qpid" 2> /dev/null
 
+# Tight with JPEG, for the app's live screen: QEMU is built with libjpeg-turbo
+# (its encoder is linked, and the library loads from the runtime: the dyld
+# check above), and a VNC display started with lossy=on answers a client
+# asking for Tight and a JPEG quality with Tight rectangles. (QEMU picks JPEG
+# per rectangle, for "smooth" content a blank screen does not have.)
+if nm -u "$rt/bin/qemu-system-aarch64" 2> /dev/null | grep -qx '_jpeg_start_compress' &&
+  ls "$rt/lib" | grep -q '^libjpeg'; then
+  "$rt/bin/qemu-system-aarch64" -M virt -cpu max -accel tcg -m 256 -display none -nodefaults -device ramfb \
+    -vnc 127.0.0.1:97,lossy=on -S -monitor none > "$tmp/jpeg.log" 2>&1 &
+  qpid=$!
+  for _ in $(seq 1 50); do nc -z 127.0.0.1 5997 2> /dev/null && break; sleep 0.2; done
+  if python3 - <<'EOF'; then
+import socket, struct, sys
+s = socket.create_connection(("127.0.0.1", 5997), timeout=10)
+def rd(n):
+    b = b""
+    while len(b) < n:
+        c = s.recv(n - len(b))
+        if not c:
+            sys.exit("closed")
+        b += c
+    return b
+rd(12); s.sendall(b"RFB 003.008\n")
+n = rd(1)[0]; types = rd(n)
+if 1 not in types:
+    sys.exit(f"no None security: {list(types)}")
+s.sendall(b"\x01")
+if struct.unpack(">I", rd(4))[0] != 0:
+    sys.exit("security failed")
+s.sendall(b"\x01")  # shared
+w, h = struct.unpack(">HH", rd(4)); rd(16); rd(struct.unpack(">I", rd(4))[0])
+# Tight (7), JPEG quality 9 (-23), compression 1 (-255)
+encs = [7, -23, -255]
+s.sendall(struct.pack(">BxH", 2, len(encs)) + b"".join(struct.pack(">i", e) for e in encs))
+s.sendall(struct.pack(">BBHHHH", 3, 0, 0, 0, w, h))
+while True:
+    t = rd(1)[0]
+    if t == 0:
+        break
+    sys.exit(f"unexpected server message {t}")
+rd(1); n = struct.unpack(">H", rd(2))[0]
+_, _, _, _, enc = struct.unpack(">HHHHi", rd(12))
+sys.exit(0 if enc == 7 else f"first rectangle is encoding {enc}, not Tight")
+EOF
+    echo "ok   VNC Tight with JPEG (libjpeg-turbo linked, lossy display answers in Tight)"
+  else
+    echo "FAIL VNC Tight with JPEG: the lossy display did not answer in Tight"
+    tail -3 "$tmp/jpeg.log"
+    fail=1
+  fi
+  kill "$qpid" 2> /dev/null
+  wait "$qpid" 2> /dev/null
+else
+  echo "FAIL VNC JPEG: qemu-system-aarch64 has no libjpeg encoder, or libjpeg is not in the runtime"
+  fail=1
+fi
+
 # winvm's screenshots, OCR and computer use take PNG screendumps.
 if printf '%s\n' '{"execute":"qmp_capabilities"}' "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$tmp/shot.png\",\"format\":\"png\"}}" '{"execute":"quit"}' |
   "$rt/bin/qemu-system-aarch64" -M virt -cpu max -accel tcg -m 256 -display none -nodefaults -device ramfb -S -qmp stdio > "$tmp/shot.log" 2>&1 &&
